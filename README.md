@@ -51,9 +51,29 @@ Supplemental data outputs for business questions.
 
 ## Business Questions:
 ### What were the total number of interactions handled by each contact center in Q1 2025?
+
+Business Answer:
+During Q1 of 2025, the total number of interactions by "Atlanta GA SE" was 8. The total number of interactions by "Boston MA NE" was 13. The total number of interactions by "Richmond VA E" was 7.
+
+Technical Explanation: I filtered support_report so that the month column only included January, February, and March (even though that was all the data), then grouped by `contact_center_name`, and finally used the summarise() function to sum total interactions per contact center.
+
 ### Which month (Jan, Feb, or Mar) had the highest total interaction volume?
+
+Business Answer: February 2025 had the highest total interaction volume with 11 interactions. Second was March 2025 with 10 interactions and third was January 2025 with 7 interactions.
+
+Technical Explanation: I used support_report to group by month and then the summarise() function to sum total interactions by month. `slice_max` can optionally be used to retain only the max value in the output.
+
 ### Which contact center had the longest average phone call duration (total_call_duration)?
-Follow-up: Why might this be the case based on the interactions data?
-Follow-up: What approach would you recommend to measure agent work time more accurately?
+
+Business Answer: "Richmond VA E" had the longest average phone call duration with an average of 15.5 minutes. Second was "Boston MA NE" with 14.0 minutes and third was "Atlanta GA SE" with  13.5 minutes.
+
+Technical Explanation: I created a data frame `modified_for_calls` that filtered records so that `total_calls` had to not be equal to 0. This is to remove records that were web interactions. I then grouped by `contact_center_name` and took the mean of `total_call_duration`.
+
+Follow-up: Why might this be the case based on the interactions data? Upon further examination, I found that in the interactions data, when I filtered for `category_ID` to be "TECH" and `channel` to be "phone", contact center "Richmond VA E" was responsible for 50% of the technical support interactions. This makes sense, because technical support calls can arguably take longer than benefits, eligibility, or even scheduling calls.
+
+Follow-up: What approach would you recommend to measure agent work time more accurately? To inspect further, I created dataframe `inspect` with time-related data. I created variable `time_until_resolution` as a better way to measure agent work time. This is because `agent_resolution_timestemp` is not always the same as `interaction_end`. For example, some agents may still stay on a phone call several minutes after the issue is marked as resolved. My new variable also accounts for non-phone interactions like the web, since `call_duration_minutes` can be misleading with its current state of including several zeroes.
+
+--
+## That's the end! I hope you've enjoyed my analysis!
 
 
