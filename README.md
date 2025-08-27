@@ -8,6 +8,7 @@ Welcome to my README File for the Oddball Customer Support Challenge!
 3. Open OddballCustomerSupport.Rmd using RStudio.
 4. Run the Chunks in RStudio (Ctrl+Shift+Enter to run current chunk or Ctrl+Alt+R to run all) according to the descriptions below:
 
+## Chunk Descriptions 
 ### Chunk 1:
 Installs all necessary packages (if not already installed) on your machine. Library(packagename) locates and loads the specific package.
 
@@ -49,5 +50,10 @@ Option to export to `.csv`, `.json`, or `.parquet`.
 Supplemental data outputs for business questions.
 
 ## Business Questions:
+### What were the total number of interactions handled by each contact center in Q1 2025?
+### Which month (Jan, Feb, or Mar) had the highest total interaction volume?
+### Which contact center had the longest average phone call duration (total_call_duration)?
+Follow-up: Why might this be the case based on the interactions data?
+Follow-up: What approach would you recommend to measure agent work time more accurately?
 
 
