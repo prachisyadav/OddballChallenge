@@ -1,0 +1,489 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+# install.packages("dplyr")
+# install.packages('tidyr')
+# install.packages('plyr')
+# install.packages('stringr')
+# install.packages('here')
+# install.packages('lubridate')
+# install.packages('arrow')
+# install.packages('logger)
+library(here)
+library(tidyr)
+library(dplyr)
+library(stringr)
+library(plyr)
+library(lubridate)
+library(logger)
+library(magrittr)
+```
+
+```{r}
+#INGEST INITIAL DATA
+
+#identify subdirectory
+
+subdir<-"Initial"
+
+log_info("Starting ingestion of initial data from subdirectory called {subdir}")
+
+initial_files <- list.files(
+  path = file.path(getwd(),subdir), 
+  
+  full.names = TRUE)
+log_info("Found {length(initial_files)} initial files: {paste(basename(initial_files), collapse=', ')}")
+
+dfs_initial <- lapply(initial_files, read.csv)
+names(dfs_initial) <- tools::file_path_sans_ext(basename(initial_files))
+list2env(dfs_initial, envir = .GlobalEnv)
+#rm(dfs_initial)
+
+```
+
+```{r}
+#PROCESS INITIAL DATA
+
+#trim white spaces from column names
+#apply a function to all data frames in the initial data list which trims all column names for white spaces from each data frame
+dfs_initial <- lapply(dfs_initial, function(df) {
+  colnames(df) <- trimws(colnames(df))
+  df
+})
+
+#Set Nulls to Character type and 'Unknown'
+#apply a function to all data frames in initial data list which replaces NULLs with character type and 'Unknown'
+# dfs_initial <- lapply(dfs_initial, function(df){
+#   df[] <- lapply(df, function(col) {
+#     #replace factor or character columns with empty strings as Unknown
+#     if (is.factor(col) || is.character(col)) {
+#       col <- as.character(col)
+#       col[col == "" | is.na(col)] <- "Unknown"
+#     }
+#   #only process as character type if a null exists in the column
+#     else if(any(is.na(col))) {
+#       col <- as.character(col)
+#       col[is.na(col)] <- "Unknown"
+#     }
+#     col
+#   })
+#   df
+# })
+
+
+```
+
+```{r}
+#INGEST FEBRUARY DELTA DATA
+
+#identify subdirectory
+subdir<-"Delta"
+
+log_info("Starting ingestion of delta February data from subdirectory called {subdir}")
+
+
+#get working dir, and list files based on wd and subdir, with regex pattern to include 'delta' for feb
+delta_files_feb <- list.files(
+  path = file.path(getwd(),subdir), 
+  pattern = ".*_delta_202502\\.csv$", 
+  full.names = TRUE)
+
+#name the data frames their original file names, and have each element df of the list dfs become a standalone data frame
+dfs_delta_feb <- lapply(delta_files_feb, read.csv)
+names(dfs_delta_feb) <- tools::file_path_sans_ext(basename(delta_files_feb))
+list2env(dfs_delta_feb, envir = .GlobalEnv)
+#rm(dfs_delta_feb)
+```
+
+
+```{r}
+#PROCESS FEBRUARY DELTA DATA
+
+#CLEAN UP DATA
+
+#trim white spaces from column names
+#apply a function to all data frames in the initial data list which trims all column names for white spaces from each data frame
+dfs_delta_feb <- lapply(dfs_delta_feb, function(df) {
+  colnames(df) <- trimws(colnames(df))
+  df
+})
+
+#rename the elements in dfs_initial and dfs_delta_feb to be the same. This is because when we check delta df for the name, it should be the same as the initial df.
+names(dfs_initial) <- c("agents", "contact_centers", "interactions", "service_categories")
+names(dfs_delta_feb) <- c("agents", "interactions", "service_categories")
+
+# ADD FUNCTION EXECUTED
+# Map by name using names(dfs_initial)
+dfs_latest_add_feb <- lapply(names(dfs_initial), function(current_df) {
+  init_df <- dfs_initial[[current_df]]
+  
+  # Check if there is a delta DF for this name
+  if (current_df %in% names(dfs_delta_feb)) {
+    delta_df <- dfs_delta_feb[[current_df]]
+    
+    delta_df$action <- as.character(delta_df$action)
+    
+    #remove white space from delta df's actions
+    delta_df$action <- trimws(as.character(delta_df$action))
+    
+    #check for when action column is equal to add and filter by that
+    df_add <- delta_df[delta_df$action == "add", , drop = FALSE]
+    
+    log_info("Adding {nrow(df_add)} new rows to {current_df}")
+    
+    #for instances when the action column of a data frame is "add" and those records have been added to        df_add, append init_df with df_add using rbind.     
+    plyr::rbind.fill(init_df, df_add)
+  #if the names in dfs_delta_feb dont match names_dfs_initial, then return the original df
+  } else {
+    init_df  
+  }
+})
+#rename the updated dfs back to the initial names
+names(dfs_latest_add_feb) <- names(dfs_initial)
+list2env(dfs_latest_add_feb, envir = .GlobalEnv)
+
+# UPDATE FUNCTION EXECUTED 
+
+# because rows_update updates records based on a unique identifier like agents_id,etc. we need to identify those primary keys
+primary_keys <- c(agents='agent_id', contact_centers ='contact_center_id',interactions='interaction_id', service_categories='category_id')
+
+#now we apply a similar process as the add function to see if the current data frame in the loop appears in dfs_delta_feb. If so, we filter the action by "update". 
+dfs_latest_update_feb <- lapply(names(dfs_latest_add_feb), function(current_df) {
+  init_df <- dfs_latest_add_feb[[current_df]]
+  
+  if (current_df %in% names(dfs_delta_feb)) {
+    delta_df <- dfs_delta_feb[[current_df]]
+    delta_df$action <- trimws(as.character(delta_df$action))
+    
+    df_update <- delta_df[delta_df$action == "update", , drop = FALSE]
+    log_info("Updating {nrow(df_update)} rows in {current_df}")
+    
+#now that we've filtered by action equaling "update", if the number of rows in df_update is greater than 1, we update init df using rows_update function in dplyr, using the unique identifier key_col which is defined as the primary keys we stated above
+    if (nrow(df_update) > 0) {
+      key_col <- primary_keys[[current_df]]
+      init_df <- dplyr::rows_update(init_df, df_update, by = key_col)
+    }
+  }
+  init_df
+})
+#restore the names of latest update to the ones from latest add
+names(dfs_latest_update_feb) <- names(dfs_latest_add_feb)
+list2env(dfs_latest_update_feb, envir = .GlobalEnv)
+
+# DELETE FUNCTION EXECUTED
+
+
+dfs_latest_delete_feb <- lapply(names(dfs_latest_update_feb), function(current_df) {
+  init_df <- dfs_latest_update_feb[[current_df]]
+  
+  # Check if there is a delta DF for this table
+  if (current_df %in% names(dfs_delta_feb)) {
+    delta_df <- dfs_delta_feb[[current_df]]
+    delta_df$action <- trimws(as.character(delta_df$action))
+    
+    # Filter "delete" actions
+    df_delete <- delta_df[delta_df$action == "delete", , drop = FALSE]
+    
+    log_info("Deleting {nrow(df_delete)} rows from {current_df}")
+
+    # If there are rows to delete, apply rows_delete by the primary key
+    if (nrow(df_delete) > 0) {
+      key_col <- primary_keys[[current_df]]
+      init_df <- dplyr::rows_delete(init_df, df_delete, by = key_col)
+    }
+  }
+  
+  init_df
+})
+
+names(dfs_latest_delete_feb) <- names(dfs_latest_update_feb)
+list2env(dfs_latest_delete_feb, envir = .GlobalEnv)
+
+```
+
+
+```{r}
+#INGEST MARCH DELTA DATA
+
+#identify sub directory
+subdir<-"Delta"
+
+log_info("Starting ingestion of delta March data from subdirectory called {subdir}")
+
+#get working dir, and list files based on wd and subdir, with regex pattern to include 'delta' for march
+delta_files_march <- list.files(
+  path = file.path(getwd(),subdir), 
+  pattern = ".*_delta_202503\\.csv$", 
+  full.names = TRUE)
+
+#name the data frames their original file names, and have each element df of the list dfs become a standalone data frame
+dfs_delta_march <- lapply(delta_files_march, read.csv)
+names(dfs_delta_march) <- tools::file_path_sans_ext(basename(delta_files_march))
+list2env(dfs_delta_march, envir = .GlobalEnv)
+#rm(dfs_delta_march)
+
+
+
+```
+
+```{r}
+#PROCESS MARCH DELTA DATA
+#CLEAN UP DATA
+
+#trim white spaces from column names
+#apply a function to all data frames in the initial data list which trims all column names for white spaces from each data frame
+dfs_delta_march <- lapply(dfs_delta_march, function(df) {
+  colnames(df) <- trimws(colnames(df))
+  df
+})
+
+#rename the elements in dfs_delta_march and dfs_delta_feb to be the same. This is because when we check delta df for the name, it should be the same as the initial df.
+names(dfs_latest_delete_feb) <- c("agents", "contact_centers", "interactions", "service_categories")
+names(dfs_delta_march) <- c("agents", "contact_centers","interactions", "service_categories")
+
+
+# ADD FUNCTION EXECUTED
+# Map by name using names(dfs_initial)
+dfs_latest_add_march <- lapply(names(dfs_latest_delete_feb), function(current_df) {
+  init_df <- dfs_latest_delete_feb[[current_df]]
+  
+  # Check if there is a delta DF for this name
+  if (current_df %in% names(dfs_delta_march)) {
+    delta_df <- dfs_delta_march[[current_df]]
+    
+    delta_df$action <- as.character(delta_df$action)
+    
+    #remove white space from delta df's actions
+    delta_df$action <- trimws(as.character(delta_df$action))
+    
+    #check for when action column is equal to add and filter by that
+    df_add <- delta_df[delta_df$action == "add", , drop = FALSE]
+    
+    log_info("Adding {nrow(df_add)} rows to {current_df} in March")
+    
+    #for instances when the action column of a data frame is "add" and those records have been added to        df_add, append init_df with df_add using rbind.     
+    plyr::rbind.fill(init_df, df_add)
+  #if the names in dfs_delta_feb dont match names_dfs_initial, then return the original df
+  } else {
+    init_df  
+  }
+})
+#rename the updated dfs back to the initial names
+names(dfs_latest_add_march) <- names(dfs_latest_delete_feb)
+list2env(dfs_latest_add_march, envir = .GlobalEnv)
+
+# UPDATE FUNCTION EXECUTED 
+
+# because rows_update updates records based on a unique identifier like agents_id,etc. we need to identify those primary keys
+primary_keys <- c(agents='agent_id', contact_centers ='contact_center_id',interactions='interaction_id', service_categories='category_id')
+
+#now we apply a similar process as the add function to see if the current data frame in the loop appears in dfs_delta_feb. If so, we filter the action by "update". 
+dfs_latest_update_march <- lapply(names(dfs_latest_add_march), function(current_df) {
+  init_df <- dfs_latest_add_march[[current_df]]
+  
+  if (current_df %in% names(dfs_delta_march)) {
+    delta_df <- dfs_delta_march[[current_df]]
+    delta_df$action <- trimws(as.character(delta_df$action))
+    
+    df_update <- delta_df[delta_df$action == "update", , drop = FALSE]
+    log_info("Updating {nrow(df_update)} rows in {current_df} for March")
+
+    
+#now that we've filtered by action equaling "update", if the number of rows in df_update is greater than 1, we update init df using rows_update function in dplyr, using the unique identifier key_col which is defined as the primary keys we stated above
+    if (nrow(df_update) > 0) {
+      key_col <- primary_keys[[current_df]]
+      init_df <- dplyr::rows_update(init_df, df_update, by = key_col)
+    }
+  }
+  
+  init_df
+})
+#restore the names of latest update to the ones from latest add
+names(dfs_latest_update_march) <- names(dfs_latest_add_march)
+list2env(dfs_latest_update_march, envir = .GlobalEnv)
+
+# DELETE FUNCTION EXECUTED
+
+
+dfs_latest_delete_march <- lapply(names(dfs_latest_update_march), function(current_df) {
+  init_df <- dfs_latest_update_march[[current_df]]
+  
+  # Check if there is a delta DF for this table
+  if (current_df %in% names(dfs_delta_march)) {
+    delta_df <- dfs_delta_march[[current_df]]
+    delta_df$action <- trimws(as.character(delta_df$action))
+    
+    # Filter "delete" actions
+    df_delete <- delta_df[delta_df$action == "delete", , drop = FALSE]
+    
+    log_info("Deleting {nrow(df_delete)} rows from {current_df} for March")
+    
+    # If there are rows to delete, apply rows_delete by the primary key
+    if (nrow(df_delete) > 0) {
+      key_col <- primary_keys[[current_df]]
+      init_df <- dplyr::rows_delete(init_df, df_delete, by = key_col)
+    }
+  }
+  
+  init_df
+})
+
+names(dfs_latest_delete_march) <- names(dfs_latest_update_march)
+#always exporting to my global environment each time - so data frames agents, interactions, contact_centers, and service_categories stay up to date
+list2env(dfs_latest_delete_march, envir = .GlobalEnv)
+
+```
+
+
+```{r}
+#OUTPUT REPORT SECTION
+
+#now that we have finished the transformations, we can set the dfs_final as dfs_latest_delete_march
+dfs_final <- dfs_latest_delete_march
+#list2env(dfs_final, envir = .GlobalEnv)
+
+#remove action column from final dataframes
+dfs_final<-lapply(dfs_final, function(x) {
+  x["action"] <- NULL; 
+  x 
+  })
+#list2env(dfs_final, envir = .GlobalEnv)
+
+# create a valid categories data frame and ensure that in final interactions, the category id must be a valid one, and if not replace it with unknown 
+valid_categories <- dfs_final$service_categories$category_id
+dfs_final$interactions$category_id <- ifelse(
+  dfs_final$interactions$category_id %in% valid_categories,
+  dfs_final$interactions$category_id,
+  "Unknown"
+)
+
+#similar to creating valid categories, create valid depts and replace NA department from service categories with 'Unknown'
+valid_depts <- dfs_final$service_categories$department
+dfs_final$service_categories$department <- ifelse(
+  dfs_final$service_categories$department %in% valid_depts,
+  dfs_final$service_categories$department,
+  "Unknown"
+)
+
+# Make sure your timestamp is in POSIXct and in the right timezone
+dfs_final$interactions$timestamp <- as.POSIXct(
+  dfs_final$interactions$timestamp, 
+  format = "%Y-%m-%dT%H:%M:%SZ", 
+  tz = "UTC"
+)
+dfs_final$interactions$timestamp <- with_tz(
+  dfs_final$interactions$timestamp, 
+  tzone = "America/New_York"
+)
+
+# Create month column
+dfs_final$interactions$month <- format(dfs_final$interactions$timestamp, "%Y-%m")
+
+
+# Export back to global environment
+list2env(dfs_final, envir = .GlobalEnv)
+
+# Build support report
+support_report <- dfs_final$interactions %>%
+  left_join(dfs_final$agents %>% select(agent_id, full_name), by = "agent_id") %>%
+  left_join(dfs_final$contact_centers %>% select(contact_center_id, contact_center_name), 
+            by = "contact_center_id") %>%
+  left_join(dfs_final$service_categories %>% select(category_id, department), 
+            by = "category_id") #%>%
+
+support_report<-as_tibble(support_report)
+
+detach("package:plyr", unload=TRUE)
+library(dplyr)
+
+support_report<- support_report %>%
+  group_by(month,contact_center_name,department) %>%
+  summarise(
+    total_interactions = n(),
+    total_calls = sum(channel=='phone', na.rm = TRUE),
+    total_call_duration = sum(as.numeric(call_duration_minutes), na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+#similar to creating valid categories, create valid depts and replace NA department from service categories with 'Unknown'
+valid_depts <- dfs_final$service_categories$department
+support_report$department <- ifelse(
+  support_report$department %in% valid_depts,
+  support_report$department,
+  "Unknown"
+)
+
+#EXPORT TO CSV
+write.csv(support_report,'support_report.csv',row.names = FALSE)
+
+#option for json output
+library(jsonlite)
+write_json(support_report,'support_report.json',pretty=TRUE)
+
+#option for parquet output
+library(arrow)
+write_parquet(support_report, "support_report.parquet")
+
+```
+
+
+
+```{r}
+# ANSWERING BUSINESS QUESTIONS
+#What were the total number of interactions handled by each contact center in Q1 2025?
+#filter for Q1
+support_report<- filter(support_report, month %in% c('2025-01','2025-02','2025-03'))
+#output total interactions sum per contact center
+support_report %>%
+  group_by(contact_center_name) %>%
+  summarise(total_interactions_sum_cc = sum(total_interactions))
+
+
+#Which month (Jan, Feb, or Mar) had the highest total interaction volume?
+support_report %>%
+  group_by(month) %>%
+  summarise(total_interactions_sum_month= sum(total_interactions)) %>%
+  #remove the below line if you'd like to see all months' total interactions
+  slice_max(total_interactions_sum_month, n = 1) 
+
+#Which contact center had the longest average phone call duration (total_call_duration)?
+modified_for_calls <- support_report %>%
+  filter(total_calls!='0')
+modified_for_calls %>%
+  group_by(contact_center_name) %>%
+  summarise(avg_call_duration= mean(total_call_duration)) %>%
+  slice_max(avg_call_duration, n=1)
+
+#Why might this be the case based on the interactions data?
+tech_calls <-
+dfs_final$interactions %>%
+  filter(category_id=='TECH', channel=='phone')
+ratio_df<-data.frame(ratio_of_tech_calls_from_richmond=mean(tech_calls$contact_center_id == "CC003")) #mean here calculates fraction of true values
+print(ratio_df)
+
+
+#What approach would you recommend to measure agent work time more accurately?
+#create data frame inspect and develop timestamps for interaction start and resolution timestamp in correct formats
+inspect<-interactions[c(1,2,7,8,9,10)]
+inspect$interaction_start <- as.POSIXct(inspect$interaction_start, format="%Y-%m-%dT%H:%M:%SZ", tz="UTC")
+
+inspect$agent_resolution_timestamp <- as.POSIXct(inspect$agent_resolution_timestamp, format="%Y-%m-%dT%H:%M:%SZ",tz="UTC")
+
+#create time until resolution variable as the difference in time between agent resolution and interaction start
+inspect$time_until_resolution <- difftime(inspect$agent_resolution_timestamp,inspect$interaction_start, units="mins")
+
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
