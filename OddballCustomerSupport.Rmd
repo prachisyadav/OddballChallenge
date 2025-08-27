@@ -8,14 +8,19 @@ This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute
 Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
 
 ```{r}
-# install.packages("dplyr")
-# install.packages('tidyr')
-# install.packages('plyr')
-# install.packages('stringr')
-# install.packages('here')
-# install.packages('lubridate')
-# install.packages('arrow')
-# install.packages('logger)
+#CHUNK 1
+# sets CRAN mirror
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+
+#relevant packages and libraries
+install.packages("dplyr")
+install.packages('tidyr')
+install.packages('plyr')
+install.packages('stringr')
+install.packages('here')
+install.packages('lubridate')
+install.packages('arrow')
+install.packages('logger')
 library(here)
 library(tidyr)
 library(dplyr)
@@ -27,6 +32,7 @@ library(magrittr)
 ```
 
 ```{r}
+#CHUNK 2
 #INGEST INITIAL DATA
 
 #identify subdirectory
@@ -49,8 +55,8 @@ list2env(dfs_initial, envir = .GlobalEnv)
 ```
 
 ```{r}
+#CHUNK 3
 #PROCESS INITIAL DATA
-
 #trim white spaces from column names
 #apply a function to all data frames in the initial data list which trims all column names for white spaces from each data frame
 dfs_initial <- lapply(dfs_initial, function(df) {
@@ -58,36 +64,17 @@ dfs_initial <- lapply(dfs_initial, function(df) {
   df
 })
 
-#Set Nulls to Character type and 'Unknown'
-#apply a function to all data frames in initial data list which replaces NULLs with character type and 'Unknown'
-# dfs_initial <- lapply(dfs_initial, function(df){
-#   df[] <- lapply(df, function(col) {
-#     #replace factor or character columns with empty strings as Unknown
-#     if (is.factor(col) || is.character(col)) {
-#       col <- as.character(col)
-#       col[col == "" | is.na(col)] <- "Unknown"
-#     }
-#   #only process as character type if a null exists in the column
-#     else if(any(is.na(col))) {
-#       col <- as.character(col)
-#       col[is.na(col)] <- "Unknown"
-#     }
-#     col
-#   })
-#   df
-# })
-
 
 ```
 
 ```{r}
+#CHUNK 4
 #INGEST FEBRUARY DELTA DATA
 
 #identify subdirectory
 subdir<-"Delta"
 
 log_info("Starting ingestion of delta February data from subdirectory called {subdir}")
-
 
 #get working dir, and list files based on wd and subdir, with regex pattern to include 'delta' for feb
 delta_files_feb <- list.files(
@@ -104,9 +91,9 @@ list2env(dfs_delta_feb, envir = .GlobalEnv)
 
 
 ```{r}
-#PROCESS FEBRUARY DELTA DATA
+#CHUNK 5
 
-#CLEAN UP DATA
+#PROCESS FEBRUARY DELTA DATA
 
 #trim white spaces from column names
 #apply a function to all data frames in the initial data list which trims all column names for white spaces from each data frame
@@ -210,6 +197,7 @@ list2env(dfs_latest_delete_feb, envir = .GlobalEnv)
 
 
 ```{r}
+#CHUNK 6
 #INGEST MARCH DELTA DATA
 
 #identify sub directory
@@ -230,12 +218,12 @@ list2env(dfs_delta_march, envir = .GlobalEnv)
 #rm(dfs_delta_march)
 
 
-
 ```
 
 ```{r}
+#CHUNK 7
 #PROCESS MARCH DELTA DATA
-#CLEAN UP DATA
+
 
 #trim white spaces from column names
 #apply a function to all data frames in the initial data list which trims all column names for white spaces from each data frame
@@ -343,6 +331,7 @@ list2env(dfs_latest_delete_march, envir = .GlobalEnv)
 
 
 ```{r}
+#CHUNK 8
 #OUTPUT REPORT SECTION
 
 #now that we have finished the transformations, we can set the dfs_final as dfs_latest_delete_march
@@ -436,6 +425,7 @@ write_parquet(support_report, "support_report.parquet")
 
 
 ```{r}
+#CHUNK 9
 # ANSWERING BUSINESS QUESTIONS
 #What were the total number of interactions handled by each contact center in Q1 2025?
 #filter for Q1
